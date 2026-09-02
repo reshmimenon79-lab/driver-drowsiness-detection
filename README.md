@@ -2,20 +2,27 @@
 
 ## Overview
 
-The Driver Drowsiness Detection System is a real-time application designed to detect signs of driver fatigue using computer vision and deep learning.
+The Driver Drowsiness Detection System is a real-time computer vision and deep learning application designed to detect signs of driver fatigue.
 
-The system captures live video from a webcam and monitors facial features such as the eyes and mouth. Eye Aspect Ratio (EAR) and Mouth Aspect Ratio (MAR) are used to identify prolonged eye closure and yawning. When signs of drowsiness are detected, the system triggers an audio alarm to alert the driver.
+The system captures live video from a webcam and monitors the driver's facial features. It combines Eye Aspect Ratio (EAR), Mouth Aspect Ratio (MAR), and CNN-based drowsiness prediction to identify prolonged eye closure, yawning, and possible drowsiness.
+
+When drowsiness or yawning is confirmed for the required duration, the system triggers an audio alarm to alert the driver.
 
 ## Features
 
 - Real-time webcam monitoring
-- Face and facial landmark detection
+- Face detection using Dlib
+- 68-point facial landmark detection
 - Eye closure detection using Eye Aspect Ratio (EAR)
 - Yawning detection using Mouth Aspect Ratio (MAR)
-- Deep learning based driver-state classification
-- Consecutive frame monitoring to reduce false alarms
-- Audio alarm when drowsiness is detected
-- Camera testing functionality
+- CNN-based drowsiness prediction
+- Adaptive EAR and MAR thresholds
+- Consecutive-frame monitoring to reduce false alarms
+- Audio alarm for drowsiness and yawning
+- Alarm cooldown and re-arming mechanism
+- Automatic camera detection
+- Alternative detection mode when Dlib is unavailable
+- Camera testing utility
 
 ## Technologies Used
 
@@ -40,112 +47,297 @@ driver-drowsiness-detection/
 ├── model.json
 ├── model.weights.h5
 ├── alarm.wav
+├── requirements.txt
+├── .gitignore
+├── README.md
 ├── PROJECT_DOCUMENTATION.md
 ├── QUICKSTART.md
 ├── SETUP_REQUIREMENTS.md
 └── CAMERA_CRASH_FIXES.md
 ```
 
+The Dlib facial landmark file `shape_predictor_68_face_landmarks.dat`
+is required for the main detection program but is not included in this
+repository because of its large file size.
+
 ## Important Files
 
-### detect.py
-Main program for real-time driver drowsiness detection.
+### `detect.py`
 
-### detect_no_dlib.py
-Alternative implementation that can run without Dlib.
+Main real-time drowsiness detection program.
 
-### detect_simple.py
-Simplified version of the detection system.
+It combines:
 
-### test_camera.py
-Used to test whether the webcam is detected and working correctly.
+- Dlib facial landmarks
+- EAR-based eye closure detection
+- MAR-based yawning detection
+- CNN-based drowsiness prediction
+- Adaptive thresholds
+- Audio alarm logic
 
-### model.json
-Contains the architecture of the trained deep learning model.
+### `detect_no_dlib.py`
 
-### model.weights.h5
-Contains the trained weights of the deep learning model.
+Alternative detection implementation used when Dlib is not available.
 
-### alarm.wav
-Audio file used to alert the driver when drowsiness is detected.
+### `detect_simple.py`
+
+Simplified implementation of the drowsiness detection system.
+
+### `test_camera.py`
+
+Utility program used to check whether the webcam is detected and working correctly.
+
+### `model.json`
+
+Contains the architecture of the trained CNN model.
+
+### `model.weights.h5`
+
+Contains the trained weights of the CNN model.
+
+### `alarm.wav`
+
+Audio warning played when drowsiness or yawning is detected.
 
 ## How the System Works
 
-The basic workflow is:
+The basic processing flow is:
 
 ```text
 Webcam
    ↓
 Capture Video Frame
    ↓
-Detect Face
+Detect Driver's Face
    ↓
-Detect Eyes and Mouth
+Extract Facial Landmarks
+   ↓
+Eyes and Mouth
    ↓
 Calculate EAR and MAR
    ↓
-Check Thresholds
+CNN Drowsiness Prediction
+   ↓
+Apply Adaptive Thresholds
    ↓
 Monitor Consecutive Frames
    ↓
-Detect Drowsiness
+Classify Driver State
    ↓
-Trigger Alarm
+NORMAL / YAWNING / DROWSY
+   ↓
+Trigger Alarm if Required
 ```
 
 ## Eye Aspect Ratio (EAR)
 
 Eye Aspect Ratio is used to determine whether the driver's eyes are open or closed.
 
-When the eyes are open, the EAR value is generally higher.
+EAR is calculated using distances between the facial landmark points around each eye.
 
-When the eyes close, the EAR value decreases.
+When the eyes are open, the EAR value is generally higher. When the eyes close, the EAR value decreases.
 
-If the EAR remains below the configured threshold for several consecutive frames, the system considers it a possible sign of drowsiness.
+The system monitors the EAR value across consecutive frames instead of triggering an alarm from a single frame. This helps distinguish prolonged eye closure from a normal blink.
+
+The default EAR threshold in the current implementation is:
+
+```text
+0.26
+```
+
+The system also maintains an adaptive EAR threshold based on the driver's observed open-eye measurements.
 
 ## Mouth Aspect Ratio (MAR)
 
-Mouth Aspect Ratio is used to monitor mouth opening.
+Mouth Aspect Ratio is used to detect prolonged mouth opening associated with yawning.
 
-A significant increase in MAR for a period of time may indicate yawning, which can be another sign of driver fatigue.
+The MAR value is calculated using distances between facial landmark points around the mouth.
 
-## Deep Learning Model
+A high MAR value maintained for the required duration can indicate a yawn.
 
-The project also uses a trained deep learning model for driver-state classification.
+The default MAR threshold is:
 
-The model architecture is stored in:
+```text
+0.72
+```
 
-`model.json`
+The system also adapts the MAR threshold based on the driver's observed facial measurements.
 
-The trained model weights are stored in:
+## CNN-Based Drowsiness Detection
 
-`model.weights.h5`
+In addition to EAR and MAR, the system uses a trained CNN model to calculate a drowsiness score from the detected face.
+
+The repository contains:
+
+```text
+model.json
+model.weights.h5
+```
+
+`model.json` contains the model architecture and `model.weights.h5` contains the trained model weights.
+
+The default CNN drowsiness threshold is:
+
+```text
+0.60
+```
+
+The program can also attempt to load `mobilenetv2_drowsy.h5` if that model file is available.
+
+If no trained model can be loaded, the program contains a MobileNetV2 fallback. However, the fallback is not trained specifically for this drowsiness-detection task and therefore should not be expected to provide reliable drowsiness classification.
+
+## Detection Logic
+
+The system uses multiple signals instead of depending on only one measurement.
+
+Drowsiness can be confirmed when:
+
+- Eye closure continues for the required number of frames, or
+- CNN predictions indicate drowsiness for the required number of frames, or
+- Both eye-closure and CNN evidence reach their combined confirmation conditions.
+
+Yawning is monitored separately using MAR and duration.
+
+The final driver status displayed by the application is:
+
+```text
+NORMAL
+YAWNING
+DROWSY
+```
+
+## Current Detection Parameters
+
+The main implementation currently uses approximately:
+
+| Parameter | Value |
+|---|---:|
+| EAR threshold | 0.26 |
+| EAR confirmation | 4 frames |
+| MAR threshold | 0.72 |
+| CNN threshold | 0.60 |
+| CNN confirmation | 8 frames |
+| Yawn duration | 1.3 seconds |
+| Target FPS | 15 |
+| Alarm cooldown | 10 seconds |
+| Normal-state re-arm duration | 2 seconds |
+
+These values can be modified in the configuration section of `detect.py`.
+
+## Facial Landmark Model
+
+The main `detect.py` program requires Dlib's 68-point facial landmark predictor:
+
+```text
+shape_predictor_68_face_landmarks.dat
+```
+
+Download the predictor separately and place it in the root directory of the project.
+
+The expected location is:
+
+```text
+driver-drowsiness-detection/
+│
+├── detect.py
+├── shape_predictor_68_face_landmarks.dat
+├── model.json
+├── model.weights.h5
+└── alarm.wav
+```
+
+Without this file, the Dlib-based facial landmark detection in `detect.py` cannot run.
+
+## Dlib Fallback
+
+If Dlib is not installed, `detect.py` automatically attempts to run:
+
+```text
+detect_no_dlib.py
+```
+
+For full EAR and MAR facial-landmark detection, Dlib and the 68-point facial landmark predictor are required.
 
 ## Installation
 
-Install the required Python libraries before running the project.
+### 1. Clone the repository
 
 ```bash
-pip install tensorflow opencv-python numpy scipy dlib imutils pygame
+git clone <repository-url>
 ```
+
+Move into the project directory:
+
+```bash
+cd driver-drowsiness-detection
+```
+
+### 2. Install dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+The main dependencies are:
+
+- TensorFlow
+- OpenCV
+- NumPy
+- SciPy
+- Dlib
+- Imutils
+- Pygame
+
+### 3. Add the facial landmark predictor
+
+Place:
+
+```text
+shape_predictor_68_face_landmarks.dat
+```
+
+inside the project root directory.
 
 ## Run the Project
 
-Run the main detection program using:
+First, you can test the webcam using:
+
+```bash
+python test_camera.py
+```
+
+Then run the main application:
 
 ```bash
 python detect.py
 ```
 
-Make sure a working webcam is connected to the computer.
+Make sure a working webcam is connected or available.
+
+Press:
+
+```text
+ESC
+```
+
+to close the drowsiness monitor.
+
+## Alarm System
+
+The application uses `alarm.wav` through Pygame.
+
+When the driver is classified as `DROWSY` or `YAWNING`, the alarm is triggered.
+
+The alarm includes a cooldown mechanism to prevent it from continuously restarting. After the system observes a sufficient normal period, the alarm is re-armed for future drowsiness events.
 
 ## Future Improvements
 
-- Improve accuracy under low-light conditions
-- Reduce false alarms while the driver is speaking
+- Improve detection accuracy under low-light conditions
+- Further reduce false positives caused by speaking
 - Improve detection for drivers wearing glasses
 - Add PERCLOS-based fatigue analysis
-- Optimize the system for embedded devices
+- Evaluate the model on a larger and more diverse dataset
+- Optimize the system for embedded or edge devices
 - Add driver monitoring statistics and reports
 
 ## Author
